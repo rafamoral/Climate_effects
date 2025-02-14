@@ -1,0 +1,899 @@
+---
+title: "The effect of climate change on glyphosate control of Avena fatua, Brassica napus, and Echinochloa crus-galli"
+author: 'Bitarafan et al.'
+date: ''
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading packages and reading data, echo = FALSE, results = FALSE, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(readxl)
+library(R2jags)
+library(glmmTMB)
+library(mgcv)
+library(gratia)
+
+dat <- read_xlsx("bitarafan_et_al_data.xlsx")
+dat <- dat %>%
+  mutate(Experiment = as.factor(Experiment),
+         Room = as.factor(Room),
+         replication = as.factor(replication),
+         CO2_conc_ppm = as.factor(CO2_conc_ppm),
+         Species = as.factor(Species),
+         Temperature = as.factor(Temperature))
+levels(dat$Temperature) <- c("18/12", "20.5/14.5")
+dat$CO2_conc_ppm <- factor(paste0(dat$CO2_conc_ppm, " ppm; ", dat$Temperature, "°C day/night"))
+
+dat <- dat %>%
+  mutate(perc_N = perc_N / 100,
+         perc_C = perc_C / 100,
+         perc_H = perc_H / 100)
+
+dat$glyphosate_dose <- as.factor(dat$glyphosate_dose)
+levels(dat$glyphosate_dose) <- c("0", "8.75", "17.5", "35", "70", "140", "420", "1260", "2520")
+dat$glyphosate_dose <- log(as.numeric(as.character(dat$glyphosate_dose)) + .5)
+
+levels(dat$Species) <- c("Echinochloa crus-galli", "Brassica napus", "Avena fatua")
+
+dat$Species <- factor(dat$Species, levels = rev(c("Echinochloa crus-galli", "Brassica napus", "Avena fatua")))
+
+dat <- dat %>%
+  mutate(exp_rep = Experiment : replication,
+         SpCO2 = Species : CO2_conc_ppm)
+
+## barnyard grass = Echinochloa crus-galli
+## oilseed rape = Brassica napus
+## wild oat = Avena fatua
+```
+
+## Methods
+
+### Fresh and dry weight
+
+We fitted nonlinear mixed-effects models to the fresh and dry weight data using the log-logistic nonlinear function. Let $y_{ijklm}$ be the fresh or dry weight measured at a glyphosate dose $i$, species $j$, environment $k$ (each environment is a combination between environment and temperature), experiment $l$ and replicate $m$. The model formulation is
+
+\begin{eqnarray*}
+Y_{ijklm} | a_{jklm} & \sim & \mathcal{N}^+(\mu_{ijklm}, \sigma^2) \\
+\mu_{ijklm} &=& \displaystyle \frac{a_{jklm}}{1+\exp\{\gamma_{jk}(\log(d_i+0.5)-\log(\kappa_{jk}))\}} \\
+a_{jklm} &\sim& \mathcal{N}(\alpha_{jk},\sigma^2_a)
+\end{eqnarray*}
+
+where $\mathcal{N}$ and $\mathcal{N}^+$ are the normal and the positive truncated normal distributions, respectively; $d_i$ is the $i-$th glyphosate dose; $\alpha_{jk}$, $\gamma_{jk}$ and $\kappa_{jk}$ are the asymptotes, growth rates and inflection points of the nonlinear curves fitted to each species $\times$ environment combination, respectively; and $a_{jklm}$ is the experiment $\times$ replicate level random effect, included to account for the variability within experiments and replicates.
+
+We used a Bayesian estimation framework to fit the models, using the following prior distributions:
+
+\begin{eqnarray*}
+\alpha_{jk}, \gamma_{jk}, \kappa_{jk} &\sim& \mathcal{N}^+(0, 10000) \\
+\sigma, \sigma_a &\sim& \mathcal{U}(0, 100) \\
+\end{eqnarray*}
+
+We estimated the models using JAGS (Plummer, 2003)\footnote{Plummer, M. (2003) JAGS: A program for analysis of Bayesian graphical models using Gibbs sampling, Proceedings of the 3rd international workshop on distributed statistical computing, vol. 124, p. 1--10}, with $10,000$ MCMC iterations with the first $5,000$ discarded as burn-in, with a thinning rate of $10$.
+
+We estimated the 50% and 90% effective doses (ED50 and ED90, respectively) for each species $\times$ environment combinations using the formulas below:
+
+\begin{eqnarray*}
+\hat{\mbox{ED50}}_{jk} &=& \hat{\kappa}_{jk} \\
+\hat{\mbox{ED90}}_{jk} &=& \hat{\kappa}_{jk} \times 9^{1/\hat{\gamma}_{jk}}
+\end{eqnarray*}
+
+We also computed the 95% credible intervals for the differences between ED50 and ED90 within the same species but for different environment levels, to test for differences.
+
+**Hypothesis testing:** In the Bayesian paradigm, we combine information from the data (the likelihood) and prior information to obtain the _posterior distribution_ for all parameter values. From that posterior distribution, we can derive 95% credible intervals, which directly translate to a 95% probability that the true parameter values are included in that interval. To test whether, e.g. the ED50 for one species is significantly different from the ED50 for another, we compute the 95% credible interval for the difference between ED50 values. If that interval includes zero, then they are not sufficiently different; if zero is not included then we conclude that they are significantly different. Therefore, there are no p-values to be calculated in this setting.
+
+### Fv/Fm and C/N
+
+We fitted Gaussian generalized additive models (GAMs) to the Fv/Fm and C/N data, including a random intercept per replicate within experiment, the effects of species, environment and the two-way interaction between species and environment, as well as thin plate regression splines over glyphosate dose for each species $\times$ environment combination. We assessed the significance of the effects using F tests.
+
+### Percentage N, C and H
+
+We fitted beta generalized additive models (GAMs) to the percentages of N, C and H data, including a random intercept per replicate within experiment, the effects of species, environment and the two-way interaction between species and environment, as well as thin plate regression splines over glyphosate dose for each species $\times$ environment combination. We assessed the significance of the effects using likelihood-ratio ($\chi^2$) tests.
+
+### Software
+
+All analyses were carried out using R (R Core Team, 2024)\footnote{R Core Team (2024). R: A Language and Environment for Statistical Computing. R Foundation for Statistical Computing, Vienna, Austria. https://www.R-project.org/.}. All Bayesian models were fitted using package `R2jags` (Su and Yajima, 2024)\footnote{Su Y, Yajima M (2024). R2jags: Using R to Run 'JAGS'. R package version 0.8-5, https://CRAN.R-project.org/package=R2jags.}. All GAMs were fitted using package `mgcv` (Wood, 2017)\footnote{Wood, S.N. (2017) Generalized Additive Models: An Introduction with R (2nd edition). Chapman and Hall/CRC.}. All plots were generated using package `ggplot2` (Wickham, 2016)\footnote{H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.}.
+
+## Results
+
+### Fresh weight
+
+```{r fresh weight analysis, echo = FALSE, warning = FALSE, message = FALSE}
+jags_code <- "
+model {
+  # Likelihood
+  for(i in 1:N) {
+    y[i] ~ dnorm(f[i], sigma^-2)T(0,)
+    f[i] = asymptote[species_co2[i], exp_rep[i]] / (1 + exp(rate_mean[species_co2[i]] * (x[i] - log(inflection_mean[species_co2[i]]))))
+    y_pred[i] ~ dnorm(f_mean[i], sigma^-2)T(0,)
+    f_mean[i] = asymptote_mean[species_co2[i]] / (1 + exp(rate_mean[species_co2[i]] * (x[i] - log(inflection_mean[species_co2[i]]))))
+  }
+  
+  # Priors
+  
+  for(a in 1:n_combinations) {
+    for(b in 1:N_g) {
+      asymptote[a,b] ~ dnorm(asymptote_mean[a], sigma_asym^-2)
+    }
+  }
+  
+  for(j in 1:n_combinations) {
+    asymptote_mean[j] ~ dnorm(0, 100^-2)T(0,)
+    rate_mean[j] ~ dnorm(0, 100^-2)T(0,)
+    inflection_mean[j] ~ dnorm(0, 100^-2)T(0,)
+  }
+  
+  sigma ~ dunif(0, 100)
+  sigma_asym ~ dunif(0, 100)
+  
+  # ED50
+  b_50_400 <- inflection_mean[1]
+  b_50_800 <- inflection_mean[2]
+  o_50_400 <- inflection_mean[3]
+  o_50_800 <- inflection_mean[4]
+  w_50_400 <- inflection_mean[5]
+  w_50_800 <- inflection_mean[6]
+  
+  # ED90
+  b_90_400 <- inflection_mean[1] * 9 ^ (1 / rate_mean[1])
+  b_90_800 <- inflection_mean[2] * 9 ^ (1 / rate_mean[2])
+  o_90_400 <- inflection_mean[3] * 9 ^ (1 / rate_mean[3])
+  o_90_800 <- inflection_mean[4] * 9 ^ (1 / rate_mean[4])
+  w_90_400 <- inflection_mean[5] * 9 ^ (1 / rate_mean[5])
+  w_90_800 <- inflection_mean[6] * 9 ^ (1 / rate_mean[6])
+  
+  # Tests
+  barnyardgrass_asym <- asymptote_mean[1] - asymptote_mean[2]
+  oilseedrape_asym <- asymptote_mean[3] - asymptote_mean[4]
+  wildoat_asym <- asymptote_mean[5] - asymptote_mean[6]
+  
+  barnyardgrass_rate <- rate_mean[1] - rate_mean[2]
+  oilseedrape_rate <- rate_mean[3] - rate_mean[4]
+  wildoat_rate <- rate_mean[5] - rate_mean[6]
+  
+  barnyardgrass_infl <- inflection_mean[1] - inflection_mean[2]
+  oilseedrape_infl <- inflection_mean[3] - inflection_mean[4]
+  wildoat_infl <- inflection_mean[5] - inflection_mean[6]
+  
+  barnyardgrass_ED50 <- b_50_400 - b_50_800
+  oilseedrape_ED50 <- o_50_400 - o_50_800
+  wildoat_ED50 <- w_50_400 - w_50_800
+  
+  barnyardgrass_ED90 <- b_90_400 - b_90_800
+  oilseedrape_ED90 <- o_90_400 - o_90_800
+  wildoat_ED90 <- w_90_400 - w_90_800
+  
+  b_vs_o_50_400 <- b_50_400 - o_50_400
+  b_vs_o_50_800 <- b_50_800 - o_50_800
+  b_vs_w_50_400 <- b_50_400 - w_50_400
+  b_vs_w_50_800 <- b_50_800 - w_50_800
+  o_vs_w_50_400 <- o_50_400 - w_50_400
+  o_vs_w_50_800 <- o_50_800 - w_50_800
+  
+  b_vs_o_90_400 <- b_90_400 - o_90_400
+  b_vs_o_90_800 <- b_90_800 - o_90_800
+  b_vs_w_90_400 <- b_90_400 - w_90_400
+  b_vs_w_90_800 <- b_90_800 - w_90_800
+  o_vs_w_90_400 <- o_90_400 - w_90_400
+  o_vs_w_90_800 <- o_90_800 - w_90_800
+}"
+
+dat_pred <- expand.grid(Species = unique(dat$Species),
+                        CO2_conc_ppm = unique(dat$CO2_conc_ppm),
+                        Experiment = factor(c(1,2)),
+                        Replication = factor(c(1:4)),
+                        glyphosate_dose = seq(log(.5), log(2520.5), length = 50))
+
+jags_run <- jags(data = list(N = nrow(dat) + nrow(dat_pred),
+                             N_g = length(unique(dat$Experiment : dat$replication)),
+                             exp_rep = c(dat$Experiment : dat$replication,
+                                         dat_pred$Experiment : dat_pred$Replication),
+                             y = c(dat$Fresh_Weight_g, rep(NA, nrow(dat_pred))),
+                             x = c(dat$glyphosate_dose, dat_pred$glyphosate_dose),
+                             species_co2 = c(dat$Species : dat$CO2_conc_ppm,
+                                             dat_pred$Species : dat_pred$CO2_conc_ppm),
+                             n_combinations = length(unique(dat$Species : dat$CO2_conc_ppm))),
+                 parameters.to.save = c("asymptote_mean", "rate_mean", "inflection_mean",
+                                        "sigma", "sigma_asym",
+                                        "y_pred",
+                                        "barnyardgrass_asym", "barnyardgrass_rate", "barnyardgrass_infl",
+                                        "oilseedrape_asym", "oilseedrape_rate", "oilseedrape_infl",
+                                        "wildoat_asym", "wildoat_rate", "wildoat_infl",
+                                        "barnyardgrass_ED50", "barnyardgrass_ED90",
+                                        "oilseedrape_ED50", "oilseedrape_ED90",
+                                        "wildoat_ED50", "wildoat_ED90",
+                                        "b_50_400", "b_90_400", "b_50_800", "b_90_800",
+                                        "o_50_400", "o_90_400", "o_50_800", "o_90_800",
+                                        "w_50_400", "w_90_400", "w_50_800", "w_90_800",
+                                        "b_vs_o_50_400", "b_vs_o_50_800",
+                                        "b_vs_w_50_400", "b_vs_w_50_800",
+                                        "o_vs_w_50_400", "o_vs_w_50_800",
+                                        "b_vs_o_90_400", "b_vs_o_90_800",
+                                        "b_vs_w_90_400", "b_vs_w_90_800",
+                                        "o_vs_w_90_400", "o_vs_w_90_800"),
+                 model.file = textConnection(jags_code),
+                 n.iter = 10000,
+                 n.burnin = 5000,
+                 n.thin = 10)
+
+param_est <- round(jags_run$BUGSoutput$summary[c(1:6,25:30,44:49,50,51),c(1,3,7,8)],4)
+ED_est <- round(jags_run$BUGSoutput$summary[c(7:10,31:34,52:55),c(1,3,7,8)],4)
+within_species_test_results <- round(jags_run$BUGSoutput$summary[c(19,20,39,40,56,57),c(1,3,7,8)],4)
+between_species_test_results <- round(jags_run$BUGSoutput$summary[c(11:18,35:38),c(1,3,7,8)],4)
+```
+
+```{r fresh weight results}
+## parameter estimates
+param_est
+
+## ED50 and ED90
+ED_est
+
+## ED50 and ED90 tests
+within_species_test_results
+between_species_test_results
+```
+
+```{r fresh weight plots, echo = FALSE, fig.width = 12, fig.height = 4}
+y_pred_mcmc <- jags_run$BUGSoutput$sims.matrix[,469:2868]
+dat_pred$Fresh_Weight_g <- colMeans(y_pred_mcmc)
+dat_pred$FW_lower <- apply(y_pred_mcmc, 2, quantile, .025)
+dat_pred$FW_upper <- apply(y_pred_mcmc, 2, quantile, .975)
+
+p <- dat %>%
+  ggplot(aes(x = glyphosate_dose, y = Fresh_Weight_g)) +
+  theme_bw() +
+  geom_jitter(aes(col = CO2_conc_ppm),
+              alpha = .5,
+              height = 0,
+              width = .1,
+              size = 2) +
+  geom_line(data = dat_pred %>%
+              filter(Experiment == 1,
+                     Replication == 1),
+            aes(col = CO2_conc_ppm),
+            lwd = 1) +
+  geom_ribbon(data = dat_pred %>%
+                filter(Experiment == 1,
+                       Replication == 1),
+              aes(ymin = FW_lower, ymax = FW_upper, fill = CO2_conc_ppm),
+              alpha = .2) +
+  facet_wrap(~ Species, ncol = 3) +
+  ylab("Fresh weight (g)") +
+  xlab("log(Glyphosate dose) (g active ingredient per ha)") +
+  scale_color_discrete(name = "Environment") +
+  scale_fill_discrete(name = "Environment") +
+  theme(strip.text = element_text(face = "italic"),
+        legend.position = "none")
+
+print(p)
+
+png("fig1.png", res = 800, units = "in", w = 12, h = 4)
+print(p)
+dev.off()
+```
+
+### Dry weight
+
+```{r dry weight fit, echo = FALSE, warning = FALSE, message = FALSE}
+jags_run <- jags(data = list(N = nrow(dat) + nrow(dat_pred),
+                             N_g = length(unique(dat$Experiment : dat$replication)),
+                             exp_rep = c(dat$Experiment : dat$replication,
+                                         dat_pred$Experiment : dat_pred$Replication),
+                             y = c(dat$Dry_Weight_g, rep(NA, nrow(dat_pred))),
+                             x = c(dat$glyphosate_dose, dat_pred$glyphosate_dose),
+                             species_co2 = c(dat$Species : dat$CO2_conc_ppm,
+                                             dat_pred$Species : dat_pred$CO2_conc_ppm),
+                             n_combinations = length(unique(dat$Species : dat$CO2_conc_ppm))),
+                 parameters.to.save = c("asymptote_mean", "rate_mean", "inflection_mean",
+                                        "sigma", "sigma_asym",
+                                        "y_pred",
+                                        "barnyardgrass_asym", "barnyardgrass_rate", "barnyardgrass_infl",
+                                        "oilseedrape_asym", "oilseedrape_rate", "oilseedrape_infl",
+                                        "wildoat_asym", "wildoat_rate", "wildoat_infl",
+                                        "barnyardgrass_ED50", "barnyardgrass_ED90",
+                                        "oilseedrape_ED50", "oilseedrape_ED90",
+                                        "wildoat_ED50", "wildoat_ED90",
+                                        "b_50_400", "b_90_400", "b_50_800", "b_90_800",
+                                        "o_50_400", "o_90_400", "o_50_800", "o_90_800",
+                                        "w_50_400", "w_90_400", "w_50_800", "w_90_800",
+                                        "b_vs_o_50_400", "b_vs_o_50_800",
+                                        "b_vs_w_50_400", "b_vs_w_50_800",
+                                        "o_vs_w_50_400", "o_vs_w_50_800",
+                                        "b_vs_o_90_400", "b_vs_o_90_800",
+                                        "b_vs_w_90_400", "b_vs_w_90_800",
+                                        "o_vs_w_90_400", "o_vs_w_90_800"),
+                 model.file = textConnection(jags_code),
+                 n.iter = 10000,
+                 n.burnin = 5000,
+                 n.thin = 10)
+
+param_est <- round(jags_run$BUGSoutput$summary[c(1:6,25:30,44:49,50,51),c(1,3,7,8)],4)
+ED_est <- round(jags_run$BUGSoutput$summary[c(7:10,31:34,52:55),c(1,3,7,8)],4)
+within_species_test_results <- round(jags_run$BUGSoutput$summary[c(19,20,39,40,56,57),c(1,3,7,8)],4)
+between_species_test_results <- round(jags_run$BUGSoutput$summary[c(11:18,35:38),c(1,3,7,8)],4)
+```
+
+```{r dry weight results}
+## parameter estimates
+param_est
+
+## ED50 and ED90
+ED_est
+
+## ED50 and ED90 tests
+within_species_test_results
+between_species_test_results
+```
+
+```{r dry weight plots, echo = FALSE, fig.width = 12, fig.height = 4}
+y_pred_mcmc <- jags_run$BUGSoutput$sims.matrix[,469:2868]
+dat_pred$Dry_Weight_g <- colMeans(y_pred_mcmc)
+dat_pred$FW_lower <- apply(y_pred_mcmc, 2, quantile, .025)
+dat_pred$FW_upper <- apply(y_pred_mcmc, 2, quantile, .975)
+
+p <- dat %>%
+  ggplot(aes(x = glyphosate_dose, y = Dry_Weight_g)) +
+  theme_bw() +
+  geom_jitter(aes(col = CO2_conc_ppm),
+              alpha = .5,
+              height = 0,
+              width = .1,
+              size = 2) +
+  geom_line(data = dat_pred %>%
+              filter(Experiment == 1,
+                     Replication == 1),
+            aes(col = CO2_conc_ppm),
+            lwd = 1) +
+  geom_ribbon(data = dat_pred %>%
+                filter(Experiment == 1,
+                       Replication == 1),
+              aes(ymin = FW_lower, ymax = FW_upper, fill = CO2_conc_ppm),
+              alpha = .2) +
+  facet_wrap(~ Species, ncol = 3) +
+  ylab("Dry weight (g)") +
+  xlab("log(Glyphosate dose) (g active ingredient per ha)") +
+  scale_color_discrete(name = "Environment") +
+  scale_fill_discrete(name = "Environment") +
+  theme(strip.text = element_text(face = "italic"),
+        legend.position = "none")
+
+print(p)
+
+png("fig2.png", res = 800, units = "in", w = 12, h = 4)
+print(p)
+dev.off()
+```
+
+### Fv/Fm
+
+```{r fv over fm, echo = FALSE, warning = FALSE, message = FALSE}
+fit <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + Species * CO2_conc_ppm +
+             s(glyphosate_dose, k = 5, by = SpCO2),
+           data = dat)
+fit_small <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 5, by = Species) +
+             s(glyphosate_dose, k = 5, by = CO2_conc_ppm),
+           data = dat)
+
+anova(fit_small, fit)
+```
+
+```{r, warning = FALSE, message = FALSE}
+## splitting interactions
+## within species between environments
+fit_b <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 5, by = CO2_conc_ppm),
+           data = dat %>%
+             filter(Species == "Echinochloa crus-galli"))
+fit_b_small <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 5),
+           data = dat %>%
+             filter(Species == "Echinochloa crus-galli"))
+anova(fit_b_small, fit_b)
+
+fit_o <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 5, by = CO2_conc_ppm),
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+fit_o_small <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 5),
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+anova(fit_o_small, fit_o)
+fit_o_small2 <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") +
+             s(glyphosate_dose, k = 5),
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+anova(fit_o_small2, fit_o_small)
+fit_o_small3 <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm,
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+anova(fit_o_small3, fit_o_small)
+
+fit_w <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 5, by = CO2_conc_ppm),
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+fit_w_small <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 5),
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+anova(fit_w_small, fit_w)
+fit_w_small2 <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") +
+             s(glyphosate_dose, k = 5),
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+anova(fit_w_small2, fit_w_small)
+fit_w_small3 <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + CO2_conc_ppm,
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+anova(fit_w_small3, fit_w_small)
+
+## within environment between species
+fit_400 <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 5, by = Species),
+           data = dat %>%
+             filter(CO2_conc_ppm == "400 ppm; 18/12°C day/night"))
+fit_400_small <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 5),
+           data = dat %>%
+             filter(CO2_conc_ppm == "400 ppm; 18/12°C day/night"))
+anova(fit_400_small, fit_400)
+
+fit_800 <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 5, by = Species),
+           data = dat %>%
+             filter(CO2_conc_ppm == "800 ppm; 20.5/14.5°C day/night"))
+fit_800_small <- gam(Fv_over_Fm ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 5),
+           data = dat %>%
+             filter(CO2_conc_ppm == "800 ppm; 20.5/14.5°C day/night"))
+anova(fit_800_small, fit_800)
+```
+
+```{r fv over fm plots, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 12, fig.height = 4}
+dat_pred <- expand.grid(Species = unique(dat$Species),
+                        CO2_conc_ppm = unique(dat$CO2_conc_ppm),
+                        Experiment = factor(c(1,2)),
+                        Replication = factor(c(1:4)),
+                        glyphosate_dose = seq(log(.5), log(2520.5), length = 50))
+dat_pred <- dat_pred %>%
+  mutate(exp_rep = Experiment : Replication,
+         SpCO2 = Species : CO2_conc_ppm)
+
+y_pred <- predict(fit, newdata = dat_pred, se.fit = TRUE, type = "link")
+dat_pred$Fv_over_Fm <- (y_pred$fit)
+dat_pred$FW_lower <- (y_pred$fit - 1.96 * y_pred$se.fit)
+dat_pred$FW_upper <- (y_pred$fit + 1.96 * y_pred$se.fit)
+
+dat_pred <- dat_pred %>%
+  group_by(Species, CO2_conc_ppm, glyphosate_dose) %>%
+  summarise(Fv_over_Fm = mean(Fv_over_Fm),
+            FW_lower = mean(FW_lower),
+            FW_upper = mean(FW_upper))
+
+p <- dat %>%
+  ggplot(aes(x = glyphosate_dose, y = Fv_over_Fm)) +
+  theme_bw() +
+  geom_jitter(aes(col = CO2_conc_ppm),
+              alpha = .5,
+              height = 0,
+              width = .1,
+              size = 2) +
+  geom_line(data = dat_pred,
+            aes(col = CO2_conc_ppm),
+            lwd = 1) +
+  geom_ribbon(data = dat_pred,
+              aes(ymin = FW_lower, ymax = FW_upper, fill = CO2_conc_ppm),
+              alpha = .2) +
+  facet_wrap(~ Species, ncol = 3) +
+  ylab("Fv/Fm") +
+  xlab("log(Glyphosate dose) (g active ingredient per ha)") +
+  scale_color_discrete(name = "Environment") +
+  scale_fill_discrete(name = "Environment") +
+  theme(strip.text = element_text(face = "italic"),
+        legend.position = "none")
+
+print(p)
+
+png("fig3.png", res = 800, units = "in", w = 12, h = 4)
+print(p)
+dev.off()
+```
+
+### % N
+
+```{r perc N, echo = FALSE, warning = FALSE, message = FALSE}
+fit <- gam(perc_N ~ s(exp_rep, bs = "re") + Species * CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = SpCO2),
+           family = betar,
+           data = dat)
+fit_small <- gam(perc_N ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = Species) +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+           family = betar,
+           data = dat)
+anova(fit_small, fit, test = "Chisq")
+
+fit_small2 <- gam(perc_N ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = Species),
+           family = betar,
+           data = dat)
+anova(fit_small2, fit_small, test = "Chisq")
+
+fit_small3 <- gam(perc_N ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+           family = betar,
+           data = dat)
+anova(fit_small3, fit_small, test = "Chisq")
+
+fit_small4 <- gam(perc_N ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 9, by = Species),
+           family = betar,
+           data = dat)
+anova(fit_small4, fit_small2, test = "Chisq")
+
+```
+
+```{r perc N plots, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 12, fig.height = 4}
+dat_pred <- expand.grid(Species = unique(dat$Species),
+                        CO2_conc_ppm = unique(dat$CO2_conc_ppm),
+                        Experiment = factor(c(1,2)),
+                        Replication = factor(c(1:4)),
+                        glyphosate_dose = seq(log(.5), log(2520.5), length = 50))
+dat_pred <- dat_pred %>%
+  mutate(exp_rep = Experiment : Replication,
+         SpCO2 = Species : CO2_conc_ppm)
+
+y_pred <- predict(fit, newdata = dat_pred, se.fit = TRUE, type = "link")
+dat_pred$perc_N <- plogis(y_pred$fit)
+dat_pred$FW_lower <- plogis(y_pred$fit - 1.96 * y_pred$se.fit)
+dat_pred$FW_upper <- plogis(y_pred$fit + 1.96 * y_pred$se.fit)
+
+dat_pred <- dat_pred %>%
+  group_by(Species, CO2_conc_ppm, glyphosate_dose) %>%
+  summarise(perc_N = mean(perc_N),
+            FW_lower = mean(FW_lower),
+            FW_upper = mean(FW_upper))
+
+p <- dat %>%
+  ggplot(aes(x = glyphosate_dose, y = perc_N)) +
+  theme_bw() +
+  geom_jitter(aes(col = CO2_conc_ppm),
+              alpha = .5,
+              height = 0,
+              width = .1,
+              size = 2) +
+  geom_line(data = dat_pred,
+            aes(col = CO2_conc_ppm),
+            lwd = 1) +
+  geom_ribbon(data = dat_pred,
+              aes(ymin = FW_lower, ymax = FW_upper, fill = CO2_conc_ppm),
+              alpha = .2) +
+  facet_wrap(~ Species, ncol = 3) +
+  ylab("% N") +
+  xlab("log(Glyphosate dose) (g active ingredient per ha)") +
+  scale_color_discrete(name = "Environment") +
+  scale_fill_discrete(name = "Environment") +
+  theme(strip.text = element_text(face = "italic"),
+        legend.position = "none")
+
+print(p)
+
+png("fig4.png", res = 800, units = "in", w = 12, h = 4)
+print(p)
+dev.off()
+```
+
+### % C
+
+```{r perc C, echo = FALSE, warning = FALSE, message = FALSE}
+fit <- gam(perc_C ~ s(exp_rep, bs = "re") + Species * CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = SpCO2),
+           family = betar,
+           data = dat)
+fit_small <- gam(perc_C ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = Species) +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+           family = betar,
+           data = dat)
+anova(fit_small, fit, test = "Chisq")
+```
+
+```{r, warning = FALSE, message = FALSE}
+## splitting interactions
+## within species between environments
+fit_b <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Echinochloa crus-galli"))
+fit_b_small <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Echinochloa crus-galli"))
+anova(fit_b_small, fit_b, test = "Chisq")
+
+fit_o <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+fit_o_small <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+anova(fit_o_small, fit_o, test = "Chisq")
+fit_o_small2 <- gam(perc_C ~ s(exp_rep, bs = "re") +
+             s(glyphosate_dose, k = 9),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+anova(fit_o_small2, fit_o_small, test = "Chisq")
+fit_o_small3 <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm,
+             family = betar,
+           data = dat %>%
+             filter(Species == "Brassica napus"))
+anova(fit_o_small3, fit_o_small, test = "Chisq")
+
+fit_w <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+fit_w_small <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm +
+             s(glyphosate_dose, k = 6),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+anova(fit_w_small, fit_w, test = "Chisq")
+fit_w_small2 <- gam(perc_C ~ s(exp_rep, bs = "re") +
+             s(glyphosate_dose, k = 6),
+             family = betar,
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+anova(fit_w_small2, fit_w_small, test = "Chisq")
+fit_w_small3 <- gam(perc_C ~ s(exp_rep, bs = "re") + CO2_conc_ppm,
+             family = betar,
+           data = dat %>%
+             filter(Species == "Avena fatua"))
+anova(fit_w_small3, fit_w_small, test = "Chisq")
+
+## within environment between species
+fit_400 <- gam(perc_C ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 9, by = Species),
+             family = betar,
+           data = dat %>%
+             filter(CO2_conc_ppm == "400 ppm; 18/12°C day/night"))
+fit_400_small <- gam(perc_C ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 9),
+             family = betar,
+           data = dat %>%
+             filter(CO2_conc_ppm == "400 ppm; 18/12°C day/night"))
+anova(fit_400_small, fit_400, test = "Chisq")
+
+fit_800 <- gam(perc_C ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 9, by = Species),
+             family = betar,
+           data = dat %>%
+             filter(CO2_conc_ppm == "800 ppm; 20.5/14.5°C day/night"))
+fit_800_small <- gam(perc_C ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 9),
+             family = betar,
+           data = dat %>%
+             filter(CO2_conc_ppm == "800 ppm; 20.5/14.5°C day/night"))
+anova(fit_800_small, fit_800, test = "Chisq")
+```
+
+```{r perc C plots, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 12, fig.height = 4}
+dat_pred <- expand.grid(Species = unique(dat$Species),
+                        CO2_conc_ppm = unique(dat$CO2_conc_ppm),
+                        Experiment = factor(c(1,2)),
+                        Replication = factor(c(1:4)),
+                        glyphosate_dose = seq(log(.5), log(2520.5), length = 50))
+dat_pred <- dat_pred %>%
+  mutate(exp_rep = Experiment : Replication,
+         SpCO2 = Species : CO2_conc_ppm)
+
+y_pred <- predict(fit, newdata = dat_pred, se.fit = TRUE, type = "link")
+dat_pred$perc_C <- plogis(y_pred$fit)
+dat_pred$FW_lower <- plogis(y_pred$fit - 1.96 * y_pred$se.fit)
+dat_pred$FW_upper <- plogis(y_pred$fit + 1.96 * y_pred$se.fit)
+
+dat_pred <- dat_pred %>%
+  group_by(Species, CO2_conc_ppm, glyphosate_dose) %>%
+  summarise(perc_C = mean(perc_C),
+            FW_lower = mean(FW_lower),
+            FW_upper = mean(FW_upper))
+
+p <- dat %>%
+  ggplot(aes(x = glyphosate_dose, y = perc_C)) +
+  theme_bw() +
+  geom_jitter(aes(col = CO2_conc_ppm),
+              alpha = .5,
+              height = 0,
+              width = .1,
+              size = 2) +
+  geom_line(data = dat_pred,
+            aes(col = CO2_conc_ppm),
+            lwd = 1) +
+  geom_ribbon(data = dat_pred,
+              aes(ymin = FW_lower, ymax = FW_upper, fill = CO2_conc_ppm),
+              alpha = .2) +
+  facet_wrap(~ Species, ncol = 3) +
+  ylab("% C") +
+  xlab("log(Glyphosate dose) (g active ingredient per ha)") +
+  scale_color_discrete(name = "Environment") +
+  scale_fill_discrete(name = "Environment") +
+  theme(strip.text = element_text(face = "italic"),
+        legend.position = "none")
+
+print(p)
+
+png("fig5.png", res = 800, units = "in", w = 12, h = 4)
+print(p)
+dev.off()
+```
+
+### % H
+
+```{r perc H, echo = FALSE, warning = FALSE, message = FALSE}
+fit <- gam(perc_H ~ s(exp_rep, bs = "re") + Species * CO2_conc_ppm +
+             s(glyphosate_dose, k = 8, by = SpCO2),
+           family = betar,
+           data = dat)
+fit_small <- gam(perc_H ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 8, by = Species) + 
+             s(glyphosate_dose, k = 8, by = CO2_conc_ppm),
+           family = betar,
+           data = dat)
+anova(fit_small, fit, test = "Chisq")
+
+fit_small2 <- gam(perc_H ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 8, by = Species),
+           family = betar,
+           data = dat)
+anova(fit_small2, fit_small, test = "Chisq")
+
+fit_small3 <- gam(perc_H ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 8, by = CO2_conc_ppm),
+           family = betar,
+           data = dat)
+anova(fit_small3, fit_small, test = "Chisq")
+```
+
+```{r perc H plots, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 12, fig.height = 4}
+dat_pred <- expand.grid(Species = unique(dat$Species),
+                        CO2_conc_ppm = unique(dat$CO2_conc_ppm),
+                        Experiment = factor(c(1,2)),
+                        Replication = factor(c(1:4)),
+                        glyphosate_dose = seq(log(.5), log(2520.5), length = 50))
+dat_pred <- dat_pred %>%
+  mutate(exp_rep = Experiment : Replication,
+         SpCO2 = Species : CO2_conc_ppm)
+
+y_pred <- predict(fit, newdata = dat_pred, se.fit = TRUE, type = "link")
+dat_pred$perc_H <- plogis(y_pred$fit)
+dat_pred$FW_lower <- plogis(y_pred$fit - 1.96 * y_pred$se.fit)
+dat_pred$FW_upper <- plogis(y_pred$fit + 1.96 * y_pred$se.fit)
+
+dat_pred <- dat_pred %>%
+  group_by(Species, CO2_conc_ppm, glyphosate_dose) %>%
+  summarise(perc_H = mean(perc_H),
+            FW_lower = mean(FW_lower),
+            FW_upper = mean(FW_upper))
+
+p <- dat %>%
+  ggplot(aes(x = glyphosate_dose, y = perc_H)) +
+  theme_bw() +
+  geom_jitter(aes(col = CO2_conc_ppm),
+              alpha = .5,
+              height = 0,
+              width = .1,
+              size = 2) +
+  geom_line(data = dat_pred,
+            aes(col = CO2_conc_ppm),
+            lwd = 1) +
+  geom_ribbon(data = dat_pred,
+              aes(ymin = FW_lower, ymax = FW_upper, fill = CO2_conc_ppm),
+              alpha = .2) +
+  facet_wrap(~ Species, ncol = 3) +
+  ylab("% H") +
+  xlab("log(Glyphosate dose) (g active ingredient per ha)") +
+  scale_color_discrete(name = "Environment") +
+  scale_fill_discrete(name = "Environment") +
+  theme(strip.text = element_text(face = "italic"),
+        legend.position = "none")
+
+print(p)
+
+png("fig6.png", res = 800, units = "in", w = 12, h = 4)
+print(p)
+dev.off()
+```
+
+### C/N
+
+```{r C over N, echo = FALSE, warning = FALSE, message = FALSE}
+fit <- gam(C_over_N ~ s(exp_rep, bs = "re") + Species * CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = SpCO2),
+           data = dat)
+fit_small <- gam(C_over_N ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = Species) +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+           data = dat)
+anova(fit_small, fit)
+
+fit_small2 <- gam(C_over_N ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = Species),
+           data = dat)
+anova(fit_small2, fit_small)
+
+fit_small3 <- gam(C_over_N ~ s(exp_rep, bs = "re") + Species + CO2_conc_ppm +
+             s(glyphosate_dose, k = 9, by = CO2_conc_ppm),
+           data = dat)
+anova(fit_small3, fit_small)
+
+fit_small4 <- gam(C_over_N ~ s(exp_rep, bs = "re") + Species +
+             s(glyphosate_dose, k = 9, by = Species),
+           data = dat)
+anova(fit_small4, fit_small2)
+
+```
+
+```{r C over N plots, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 12, fig.height = 4}
+dat_pred <- expand.grid(Species = unique(dat$Species),
+                        CO2_conc_ppm = unique(dat$CO2_conc_ppm),
+                        Experiment = factor(c(1,2)),
+                        Replication = factor(c(1:4)),
+                        glyphosate_dose = seq(log(.5), log(2520.5), length = 50))
+dat_pred <- dat_pred %>%
+  mutate(exp_rep = Experiment : Replication,
+         SpCO2 = Species : CO2_conc_ppm)
+
+y_pred <- predict(fit, newdata = dat_pred, se.fit = TRUE, type = "link")
+dat_pred$C_over_N <- (y_pred$fit)
+dat_pred$FW_lower <- (y_pred$fit - 1.96 * y_pred$se.fit)
+dat_pred$FW_upper <- (y_pred$fit + 1.96 * y_pred$se.fit)
+
+dat_pred <- dat_pred %>%
+  group_by(Species, CO2_conc_ppm, glyphosate_dose) %>%
+  summarise(C_over_N = mean(C_over_N),
+            FW_lower = mean(FW_lower),
+            FW_upper = mean(FW_upper))
+
+p <- dat %>%
+  ggplot(aes(x = glyphosate_dose, y = C_over_N)) +
+  theme_bw() +
+  geom_jitter(aes(col = CO2_conc_ppm),
+              alpha = .5,
+              height = 0,
+              width = .1,
+              size = 2) +
+  geom_line(data = dat_pred,
+            aes(col = CO2_conc_ppm),
+            lwd = 1) +
+  geom_ribbon(data = dat_pred,
+              aes(ymin = FW_lower, ymax = FW_upper, fill = CO2_conc_ppm),
+              alpha = .2) +
+  facet_wrap(~ Species, ncol = 3) +
+  ylab("C/N") +
+  xlab("log(Glyphosate dose) (g active ingredient per ha)") +
+  scale_color_discrete(name = "Environment") +
+  scale_fill_discrete(name = "Environment") +
+  theme(strip.text = element_text(face = "italic"),
+        legend.position = "none")
+
+print(p)
+
+png("fig7.png", res = 800, units = "in", w = 12, h = 4)
+print(p)
+dev.off()
+```
